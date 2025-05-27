@@ -15,7 +15,5 @@ programming_language: Python
 environment: unittest
 content:
   - NBA Data Preprocessing
-additional_files:
-  - name: requirements.txt
 mode: Study
 yaml_version: 2
