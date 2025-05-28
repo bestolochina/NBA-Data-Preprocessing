@@ -1,18 +1,19 @@
+import os
+import pandas as pd
 from hstest import StageTest, TestCase, CheckResult
 from hstest.stage_test import List
-import pandas as pd
-import os
 
 module = True
 type_err = True
 other_err = True
 try:
-    from preprocess import clean_data
+    from preprocess import clean_data, feature_data
 
     path = "../Data/nba2k-full.csv"
-    df = clean_data(path)
+    df = feature_data(clean_data(path))
 except ImportError:
     clean_data = None
+    feature_data = None
     module = False
 except TypeError as type_err_exc:
     type_err_exc_message = type_err_exc
@@ -34,64 +35,69 @@ class Tests(StageTest):
                                      'Please do not rename the file.')
 
         if not module:
-            return CheckResult.wrong('The function `clean_data` was not found in your solution.')
+            return CheckResult.wrong('Either the function `clean_data` from the previous stage\n'
+                                     'or the function `feature_data` was not found in your solution.\n'
+                                     'Please include both.')
 
         if not type_err:
             return CheckResult.wrong(f"An error occurred during execution of your solution.\n"
-                                     f"The function `clean_data` should take one input parameter: path to the dataset.\n"
+                                     f"The function `feature_data` should take one input parameter: DataFrame returned by `clean_data` function.\n"
                                      f"An internal error message:\n{type_err_exc_message}")
 
         if not other_err:
-            return CheckResult.wrong(f"An error occurred during execution of `clean_data` function.\n"
+            return CheckResult.wrong(f"An error occurred during execution of `feature_data` function.\n"
                                      f"The error message:\n{other_exc_message}\n\n"
                                      f"Refer to the Objectives and Examples sections.")
-
         if df is None:
-            return CheckResult.wrong('The `clean_data` function returns nothing while it should return a DataFrame')
+            return CheckResult.wrong('The `feature_data` function returns nothing while it should return a DataFrame')
 
         if not isinstance(df, pd.DataFrame):
-            return CheckResult.wrong(f'The `clean_data` function returns a {type(df)} instead of pandas DataFrame')
+            return CheckResult.wrong(f'The `feature_data` function returns a {type(df)} instead of pandas Dataframe')
 
-        col_used = ['b_day', 'draft_year', 'team', 'height', 'weight', 'salary', 'country', 'draft_round']
+        df_sample = df.sample(frac=1, random_state=43)
 
-        for one_col in col_used:
-            if one_col not in df:
-                return CheckResult.wrong(f'The column {one_col} is not in the DataFrame')
+        if not any(df.columns.str.lower().str.contains('^age$')):
+            return CheckResult.wrong('The age feature is absent')
 
-        df_datetime = df.select_dtypes(include=['datetimetz', 'datetime']).columns.tolist()
-        if sorted(df_datetime) != sorted(['b_day', 'draft_year']):
-            return CheckResult.wrong('Convert `b_day` and `draft_year` columns to datetime objects')
+        if not any(df.columns.str.lower().str.contains('^experience$')):
+            return CheckResult.wrong('The experience feature is absent')
 
-        if list(df.loc[0, ['b_day']]) != [pd.Timestamp('1984-12-30')]:
-            return CheckResult.wrong('Dates in the `b_day` column are not parsed correctly')
+        if not any(df.columns.str.lower().str.contains('^bmi$')):
+            return CheckResult.wrong('The bmi feature is absent')
 
-        if list(df.loc[0, ['draft_year']]) != [pd.Timestamp('2003')]:
-            return CheckResult.wrong('Dates in the `draft_year` column are not parsed correctly')
+        dropped_columns = ['version', 'b_day', 'draft_year', 'weight', 'height']
 
-        if df.team.isna().sum() != 0:
-            return CheckResult.wrong('There are missing values in the `team` column')
+        for one_column in dropped_columns:
+            if any(df.columns.str.lower().str.contains(one_column)):
+                return CheckResult.wrong(f'{one_column} feature should be dropped')
 
-        if df.team.str.contains("No Team").sum() == 0:
-            return CheckResult.wrong("Replace missing values with `No Team` in the team column")
+        kept_columns = [
+            'rating', 'team', 'position', 'salary', 'country', 'draft_round', 'age', 'experience', 'bmi'
+        ]
 
-        df_floats = df.select_dtypes(include=['float']).columns
-        if sorted(df_floats) != sorted(['height', 'weight', 'salary']):
-            return CheckResult.wrong('The height, weight, and salary columns should be float')
+        for one_column in kept_columns:
+            if one_column not in df.columns.str.lower():
+                return CheckResult.wrong(f'{one_column} feature should not be dropped')
 
-        if list(df.loc[0, ['height', 'weight']]) != [2.06, 113.4]:
-            return CheckResult.wrong('The height should be in meters and the weight in kg')
+        if list(df_sample.age.head()) != [27, 34, 24, 24, 31]:
+            return CheckResult.wrong('The age feature calculation is incorrect')
 
-        df_country = list(df.country.unique())
-        if sorted(df_country) != sorted(['USA', 'Not-USA']):
-            return CheckResult.wrong('The country columns should have two unique categories: USA and Not-USA')
+        if list(df_sample.experience.head()) != [7, 14, 3, 4, 8]:
+            return CheckResult.wrong('The experience feature calculation is incorrect')
 
-        undrafted_idx = [81, 101, 109, 121, 167, 175, 188, 197, 204, 205, 213, 227, 228, 237, 241, 246, 247, 248, 250,
-                        255, 256, 258, 270, 281, 284, 286, 287, 289, 297, 298, 301, 302, 305, 308, 311, 314, 317, 319,
-                        322, 323, 324, 325, 332, 339, 341, 346, 348, 351, 359, 360, 366, 368, 374, 396, 401, 404, 406,
-                        408, 412, 414, 415, 417, 420, 424, 426, 427, 428]
-        if df['draft_round'].loc[undrafted_idx].tolist() != ['0'] * len(undrafted_idx):
-            return CheckResult.wrong('Values in `draft_round` column are not processed correctly.\n'
-                                     'Replace "Undrafted" with "0".')
+        for res, ans in zip(list(df_sample.bmi.head()), [25.987736, 24.660336, 23.141399, 24.096678, 23.759027]):
+            if not (ans - 0.2 < res < ans + 0.2):
+                return CheckResult.wrong('The bmi feature calculation is incorrect')
+
+        high_cardinality = ['full_name', 'draft_peak', 'college', 'jersey']
+
+        count_card = 0
+        for one_card in high_cardinality:
+            if any(df.columns.str.lower().str.contains(one_card)):
+                count_card += 1
+
+        if count_card != 0:
+            return CheckResult.wrong(f"Number of high cardinality feature(s) remaining in DataFrame: {count_card}")
 
         return CheckResult.correct()
 

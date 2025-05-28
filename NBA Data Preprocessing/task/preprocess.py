@@ -14,7 +14,6 @@ if 'nba2k-full.csv' not in os.listdir('../Data'):
     open('../Data/nba2k-full.csv', 'wb').write(r.content)
     print('Loaded.')
 
-data_path = "../Data/nba2k-full.csv"
 
 def clean_data(path: str) -> pd.DataFrame:
     """
@@ -54,4 +53,44 @@ def clean_data(path: str) -> pd.DataFrame:
     return df
 
 
-clean_data(data_path)
+def feature_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+        Perform feature engineering and cleaning on the NBA player DataFrame.
+
+        Steps performed:
+        1. Convert the last two characters of the 'version' column to a datetime object
+           representing the year (e.g., '20' → 2020).
+        2. Create an 'age' feature calculated as the difference in years between 'version' and 'b_day'.
+        3. Create an 'experience' feature calculated as the difference in years between 'version' and 'draft_year'.
+        4. Compute the 'bmi' (body mass index) using the formula: bmi = weight / (height^2).
+           Note: 'weight' is expected in kilograms and 'height' in meters.
+        5. Drop original columns used for feature engineering: 'version', 'b_day', 'draft_year', 'weight', and 'height'.
+        6. Identify and drop categorical columns with high cardinality (50 or more unique values).
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            The transformed DataFrame with new features and reduced dimensionality after dropping
+            specified columns and high-cardinality categorical features.
+        """
+    df['version'] = pd.to_datetime(df['version'].str[-2:], format='%y')
+    df['age'] = df['version'].dt.year - df['b_day'].dt.year
+    df['experience'] = df['version'].dt.year - df['draft_year'].dt.year
+    df['bmi'] = df['weight'] / (df['height']**2)
+    df = df.drop(columns=['version', 'b_day', 'draft_year', 'weight', 'height'])
+    high_card_features = df.select_dtypes(include='object').nunique() >= 50
+    df = df.drop(columns=high_card_features[high_card_features].index)
+
+    return df
+
+
+if __name__ == '__main__':
+    data_path = "../Data/nba2k-full.csv"
+    df_cleaned = clean_data(data_path)
+    df = feature_data(df_cleaned)
+    print(df[['age', 'experience', 'bmi']].head())
