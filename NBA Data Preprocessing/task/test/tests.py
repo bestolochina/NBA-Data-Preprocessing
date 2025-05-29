@@ -1,20 +1,20 @@
-import os
-import pandas as pd
 from hstest import StageTest, TestCase, CheckResult
 from hstest.stage_test import List
+import pandas as pd
+import os
 
 module = True
 type_err = True
 other_err = True
 try:
-    from preprocess import clean_data, feature_data
-
+    from preprocess import clean_data, feature_data, multicol_data
     path = "../Data/nba2k-full.csv"
-    df = feature_data(clean_data(path))
+    df = multicol_data(feature_data(clean_data(path)))
 except ImportError:
+    module = False
     clean_data = None
     feature_data = None
-    module = False
+    multicol_data = None
 except TypeError as type_err_exc:
     type_err_exc_message = type_err_exc
     type_err = False
@@ -32,72 +32,41 @@ class Tests(StageTest):
 
         if not os.path.exists('preprocess.py'):
             return CheckResult.wrong('The file `preprocess.py` is not found. Your solution should be located there.\n'
-                                     'Please do not rename the file.')
+                                  'Please do not rename the file.')
 
         if not module:
-            return CheckResult.wrong('Either the function `clean_data` from the previous stage\n'
-                                     'or the function `feature_data` was not found in your solution.\n'
-                                     'Please include both.')
+            return CheckResult.wrong('Either functions `clean_data` or `feature_data` from the previous stages or\n'
+                                     'the function `multicol_data` were not found in your solution.\n'
+                                     'Please include all of them.')
 
         if not type_err:
             return CheckResult.wrong(f"An error occurred during execution of your solution.\n"
-                                     f"The function `feature_data` should take one input parameter: DataFrame returned by `clean_data` function.\n"
+                                     f"The function `multicol_data` should take one input parameter: DataFrame returned by `feature_data` function.\n"
                                      f"An internal error message:\n{type_err_exc_message}")
 
         if not other_err:
-            return CheckResult.wrong(f"An error occurred during execution of `feature_data` function.\n"
+            return CheckResult.wrong(f"An error occurred during execution of `multicol_data` function.\n"
                                      f"The error message:\n{other_exc_message}\n\n"
                                      f"Refer to the Objectives and Examples sections.")
+
         if df is None:
-            return CheckResult.wrong('The `feature_data` function returns nothing while it should return a DataFrame')
+            return CheckResult.wrong('The `multicol_data` function returns nothing while it should return a DataFrame')
 
         if not isinstance(df, pd.DataFrame):
-            return CheckResult.wrong(f'The `feature_data` function returns a {type(df)} instead of pandas Dataframe')
+            return CheckResult.wrong(f'The `multicol_data` function returns a {type(df)} instead of pandas DataFrame')
 
-        df_sample = df.sample(frac=1, random_state=43)
+        if "salary" not in df.select_dtypes('number'):
+            return CheckResult.wrong("The salary variable is absent or has an incorrect type")
 
-        if not any(df.columns.str.lower().str.contains('^age$')):
-            return CheckResult.wrong('The age feature is absent')
+        if len(df.select_dtypes('number').drop(columns='salary').columns) < 3:
+            return CheckResult.wrong('Incorrect number of features were dropped for multicollinearity')
 
-        if not any(df.columns.str.lower().str.contains('^experience$')):
-            return CheckResult.wrong('The experience feature is absent')
+        if len(df.select_dtypes('number').drop(columns='salary').columns) > 3:
+            return CheckResult.wrong('Multicollinearity is still present in the DataFrame')
 
-        if not any(df.columns.str.lower().str.contains('^bmi$')):
-            return CheckResult.wrong('The bmi feature is absent')
-
-        dropped_columns = ['version', 'b_day', 'draft_year', 'weight', 'height']
-
-        for one_column in dropped_columns:
-            if any(df.columns.str.lower().str.contains(one_column)):
-                return CheckResult.wrong(f'{one_column} feature should be dropped')
-
-        kept_columns = [
-            'rating', 'team', 'position', 'salary', 'country', 'draft_round', 'age', 'experience', 'bmi'
-        ]
-
-        for one_column in kept_columns:
-            if one_column not in df.columns.str.lower():
-                return CheckResult.wrong(f'{one_column} feature should not be dropped')
-
-        if list(df_sample.age.head()) != [27, 34, 24, 24, 31]:
-            return CheckResult.wrong('The age feature calculation is incorrect')
-
-        if list(df_sample.experience.head()) != [7, 14, 3, 4, 8]:
-            return CheckResult.wrong('The experience feature calculation is incorrect')
-
-        for res, ans in zip(list(df_sample.bmi.head()), [25.987736, 24.660336, 23.141399, 24.096678, 23.759027]):
-            if not (ans - 0.2 < res < ans + 0.2):
-                return CheckResult.wrong('The bmi feature calculation is incorrect')
-
-        high_cardinality = ['full_name', 'draft_peak', 'college', 'jersey']
-
-        count_card = 0
-        for one_card in high_cardinality:
-            if any(df.columns.str.lower().str.contains(one_card)):
-                count_card += 1
-
-        if count_card != 0:
-            return CheckResult.wrong(f"Number of high cardinality feature(s) remaining in DataFrame: {count_card}")
+        if sorted(df.select_dtypes('number').drop(columns='salary').columns.str.lower().tolist()) != sorted(['rating', 'experience', 'bmi']):
+            return CheckResult.wrong(f"Your set of numerical features is currently as follows: {df.select_dtypes('number').drop(columns='salary').columns.tolist()} plus 'salary'.\n"
+                                     f"This set is wrong, probably an incorrect feature was dropped for multicollinearity.")
 
         return CheckResult.correct()
 

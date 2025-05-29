@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import os
 import requests
@@ -55,29 +56,29 @@ def clean_data(path: str) -> pd.DataFrame:
 
 def feature_data(df: pd.DataFrame) -> pd.DataFrame:
     """
-        Perform feature engineering and cleaning on the NBA player DataFrame.
+    Perform feature engineering and cleaning on the NBA player DataFrame.
 
-        Steps performed:
-        1. Convert the last two characters of the 'version' column to a datetime object
-           representing the year (e.g., '20' → 2020).
-        2. Create an 'age' feature calculated as the difference in years between 'version' and 'b_day'.
-        3. Create an 'experience' feature calculated as the difference in years between 'version' and 'draft_year'.
-        4. Compute the 'bmi' (body mass index) using the formula: bmi = weight / (height^2).
-           Note: 'weight' is expected in kilograms and 'height' in meters.
-        5. Drop original columns used for feature engineering: 'version', 'b_day', 'draft_year', 'weight', and 'height'.
-        6. Identify and drop categorical columns with high cardinality (50 or more unique values).
+    Steps performed:
+    1. Convert the last two characters of the 'version' column to a datetime object
+       representing the year (e.g., '20' → 2020).
+    2. Create an 'age' feature calculated as the difference in years between 'version' and 'b_day'.
+    3. Create an 'experience' feature calculated as the difference in years between 'version' and 'draft_year'.
+    4. Compute the 'bmi' (body mass index) using the formula: bmi = weight / (height^2).
+       Note: 'weight' is expected in kilograms and 'height' in meters.
+    5. Drop original columns used for feature engineering: 'version', 'b_day', 'draft_year', 'weight', and 'height'.
+    6. Identify and drop categorical columns with high cardinality (50 or more unique values).
 
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input DataFrame.
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input DataFrame.
 
-        Returns
-        -------
-        pd.DataFrame
-            The transformed DataFrame with new features and reduced dimensionality after dropping
-            specified columns and high-cardinality categorical features.
-        """
+    Returns
+    -------
+    pd.DataFrame
+        The transformed DataFrame with new features and reduced dimensionality after dropping
+        specified columns and high-cardinality categorical features.
+    """
     df['version'] = pd.to_datetime(df['version'].str[-2:], format='%y')
     df['age'] = df['version'].dt.year - df['b_day'].dt.year
     df['experience'] = df['version'].dt.year - df['draft_year'].dt.year
@@ -89,8 +90,55 @@ def feature_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def multicol_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove features that exhibit multicollinearity based on Pearson correlation.
+
+    This function identifies pairs of numerical features with strong correlation (|r| >= 0.5)
+    and drops the feature from each pair that has the weaker absolute correlation with the target
+    variable 'salary'. The goal is to reduce redundancy and improve model robustness.
+
+    Parameters:
+    ----------
+    df : pd.DataFrame
+        A DataFrame with numerical features and the target variable 'salary'.
+
+    Returns:
+    -------
+    pd.DataFrame
+        A new DataFrame with multicollinear features removed.
+    """
+    # Select only numeric columns
+    df_numerical = df.select_dtypes(include='number')
+
+    # Compute the correlation matrix between features (excluding salary)
+    features_corr_matrix = df_numerical.drop(columns=['salary']).corr(method='pearson')
+
+    # Compute correlation of each feature with the target (salary)
+    target_corr_matrix = df_numerical.corr(method='pearson')['salary']
+
+    # Mask for the upper triangle to avoid redundant comparisons
+    upper_mask = np.triu(np.ones(features_corr_matrix.shape), k=1).astype(bool)
+    upper_triangle = features_corr_matrix.where(upper_mask)
+
+    # Extract feature pairs with strong correlation
+    strong_corr = upper_triangle.stack()[lambda x: x.abs() >= 0.5]
+
+    # Select features to drop based on correlation with salary
+    features_to_drop = set()
+    for f1, f2 in strong_corr.index:
+        if abs(target_corr_matrix[f1]) < abs(target_corr_matrix[f2]):
+            features_to_drop.add(f1)
+        else:
+            features_to_drop.add(f2)
+
+    # Drop selected features
+    return df.drop(columns=features_to_drop)
+
+
 if __name__ == '__main__':
     data_path = "../Data/nba2k-full.csv"
     df_cleaned = clean_data(data_path)
-    df = feature_data(df_cleaned)
-    print(df[['age', 'experience', 'bmi']].head())
+    df_featured = feature_data(df_cleaned)
+    df = multicol_data(df_featured)
+    print(list(df.select_dtypes('number').drop(columns='salary')))
