@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import os
 import requests
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder
 
 # Checking ../Data directory presence
 if not os.path.exists('../Data'):
@@ -108,20 +110,13 @@ def multicol_data(df: pd.DataFrame) -> pd.DataFrame:
     pd.DataFrame
         A new DataFrame with multicollinear features removed.
     """
-    # Select only numeric columns
     df_numerical = df.select_dtypes(include='number')
-
-    # Compute the correlation matrix between features (excluding salary)
     features_corr_matrix = df_numerical.drop(columns=['salary']).corr(method='pearson')
-
-    # Compute correlation of each feature with the target (salary)
     target_corr_matrix = df_numerical.corr(method='pearson')['salary']
 
-    # Mask for the upper triangle to avoid redundant comparisons
+    # Extract feature pairs with strong correlation from the upper triangle to avoid redundant comparisons
     upper_mask = np.triu(np.ones(features_corr_matrix.shape), k=1).astype(bool)
     upper_triangle = features_corr_matrix.where(upper_mask)
-
-    # Extract feature pairs with strong correlation
     strong_corr = upper_triangle.stack()[lambda x: x.abs() >= 0.5]
 
     # Select features to drop based on correlation with salary
@@ -136,9 +131,52 @@ def multicol_data(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=features_to_drop)
 
 
+def transform_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Preprocesses the input DataFrame by scaling numerical features and one-hot encoding categorical features.
+
+    Steps performed:
+    - Separates the target variable 'salary' from the features.
+    - Scales all numerical features using StandardScaler.
+    - One-hot encodes all nominal categorical features using OneHotEncoder.
+    - Concatenates the transformed numerical and categorical features (numerical first, then categorical).
+
+    Parameters:
+    df (pd.DataFrame): The input DataFrame with features and the target variable 'salary'.
+
+    Returns:
+    tuple[pd.DataFrame, pd.DataFrame]: A tuple containing:
+        - X (pd.DataFrame): The transformed feature set.
+        - y (pd.DataFrame): The target variable 'salary'.
+    """
+    features, target = df.drop(columns=['salary']), df['salary']
+    num_feat_df = features.select_dtypes('number')  # numerical features
+    cat_feat_df = features.select_dtypes('object')  # categorical features
+
+    scaler = StandardScaler()
+    num_feat_scaled = pd.DataFrame(scaler.fit_transform(num_feat_df),
+                                   columns=num_feat_df.columns, index=num_feat_df.index)
+
+    encoder = OneHotEncoder(sparse_output=False)
+    encoder.fit(cat_feat_df)
+    col_names = [name for batch in encoder.categories_ for name in batch]
+    cat_feat_encoded = pd.DataFrame(encoder.transform(cat_feat_df),
+                                    columns=col_names, index=cat_feat_df.index)
+
+    X = pd.concat([num_feat_scaled, cat_feat_encoded], axis=1)
+
+    return X, target
+
+
 if __name__ == '__main__':
-    data_path = "../Data/nba2k-full.csv"
-    df_cleaned = clean_data(data_path)
+    path = "../Data/nba2k-full.csv"
+    df_cleaned = clean_data(path)
     df_featured = feature_data(df_cleaned)
     df = multicol_data(df_featured)
-    print(list(df.select_dtypes('number').drop(columns='salary')))
+    X, y = transform_data(df)
+
+    answer = {
+        'shape': [X.shape, y.shape],
+        'features': list(X.columns),
+    }
+    print(answer)
